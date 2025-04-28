@@ -1,0 +1,36 @@
+{% extends "template.html" %}
+
+{% block title %}The Pointers Project{% endblock %}
+
+{% block content %}
+<div class="pointers-container">
+    <h1 class="pointers-title">The Pointers Project</h1>
+    <h2 class="pointers-subtitle">An interactive exploration of <a href = "https://www.w3schools.com/c/c_pointers.php" target = "_blank">pointers </a> as they are introduced in <a href= "https://pll.harvard.edu/course/cs50-introduction-computer-science" target="_blank">CS50.</a> </br> This project supplements <a href= "https://www.youtube.com/watch?v=kcRdFGbzR1I" target = "_blank"> Lecture 4: Memory. </a></h2>
+<div class="desktop-note">
+    <small><em>Please use a desktop computer, not a mobile device, to access the interactives.</em></small>
+</div>
+    <div class="button-grid">
+        <div class="button-wrapper">
+            <img src="/static/basic.svg" class="pointer-button" id="basic-btn" alt="Basic Pointers">
+        </div>
+                <div class="button-wrapper">
+            <img src="/static/dereference.svg" class="pointer-button" id="dereference-btn" alt="Dereferencing">
+        </div>
+        <div class="button-wrapper">
+            <img src="/static/byvalue.svg" class="pointer-button" id="byvalue-btn" alt="By Value">
+        </div>
+        <div class="button-wrapper">
+            <img src="/static/reference.svg" class="pointer-button" id="reference-btn" alt="References">
+        </div>
+    </div>
+
+    <div class="animation-container" id="animation-container" style="display: none;">
+        <button class="close-btn" id="close-animation">×</button>
+        <div class="iframe-wrapper" id="iframe-wrapper"></div>
+    </div>
+
+    <div class="pointers-footer">
+        <p>Marnie Klein ~ EDU T217 Designing K–12 Computer Science Learning Experiences ~ Harvard Graduate School of Education.</br> Thank you to the EDU T217 community for their help on this still-developing project. </p>
+    </div>
+</div>
+{% endblock %}
