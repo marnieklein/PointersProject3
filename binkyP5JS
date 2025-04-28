@@ -1,0 +1,1551 @@
+// Binky program ARROW Z AND X WORK
+
+let showWelcomeScreen = true;
+let stackRows, heapRows;
+let gap;
+let characterImage;
+let restartButton;
+let squareSize, cols, rows;
+let instructionWidth;
+let draggableButtons = [];
+let errorDisplayActive = false;
+let errorMessage = "";
+let buttonLabels = [
+  "int* x",
+  "int* y",
+  "x = malloc(sizeof(int))",
+  "*x = 42",
+  "*y = 13",
+  "y = x",
+];
+
+let yArrowAnimation = null;
+let permanentYArrow = null;
+let yPointsToZ = false; // Flag to track if y correctly points to z
+
+instructionTexts = [
+  "Start by dragging the 'int* x' button to the stack area to declare a pointer. Remember, pointers take up 8 bytes of memory.",
+  "Amazing work creating a pointer! How might you drag the 'int*y ' button to declare another pointer?",
+  "Now you have two pointers. Now you need to allocate memory for the integer x. Where does this value go?\n Remember, you need 4 memory bytes for an int.",
+  "When you use malloc, that is allocated on the heap! You just created a location in heap memory that your pointer x points to. Can you drag '*x = 42' to the purple area to store a value on z, where x points?",
+  "Now, let's store the value 13 at the location pointed to by y. Which lines of code do you need, and in what order?", // Updated instruction
+  // Remove the stage 5 instruction since we're merging stages 4 and 5
+];
+
+let currentStage = 0; // Track user's progress through the stages
+let dragging = null;
+let intXPosition = null;
+let intYPosition = null;
+let mallocPosition = null;
+let arrowAnimation = null;
+let valueAnimation = null;
+let storedValue = null; // To track the value stored in z
+
+// Base font sizes and spacing
+let baseFontSize;
+let buttonFontSize;
+let buttonHeight;
+let buttonSpacing;
+let buttonWidth;
+
+// Control panel dimensions
+let controlPanelWidth;
+let gridAreaX;
+
+// Source code highlighting
+let codeHighlightLines = [2, 3, 4, 5, 6, 7]; // Which line to highlight for each stage (0-indexed)
+
+// Add a new variable to store the permanent arrow
+let permanentArrow = null;
+
+function preload() {
+  characterImage = loadImage("static/binky.jpg");
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+
+  // Calculate proportional sizes
+  calculateResponsiveSizes();
+
+  restartButton = createButton("Restart");
+  restartButton.position(controlPanelWidth * 0.05, height - buttonHeight * 1.5);
+  restartButton.size(controlPanelWidth * 0.4, buttonHeight * 1.2);
+  restartButton.style("font-size", buttonFontSize + "px");
+  restartButton.mousePressed(restartSimulation);
+  restartButton.hide(); // Initially hidden during welcome screen
+
+  createDraggableButtons();
+
+  // Initially hide all buttons during welcome screen
+  draggableButtons.forEach((button) => {
+    if (button.btn) button.btn.hide();
+  });
+}
+
+function calculateResponsiveSizes() {
+  // Control panel width (similar to SwapByValue)
+  controlPanelWidth = width * 0.25; // 25% of screen width
+  gridAreaX = controlPanelWidth;
+
+  // Scale everything based on viewport size
+  baseFontSize = min(width, height) * 0.02;
+  buttonFontSize = baseFontSize * 1.0;
+  buttonHeight = baseFontSize * 2.2;
+  buttonSpacing = buttonHeight * 1.3;
+  buttonWidth = min(350, controlPanelWidth * 0.8);
+
+  // Square size is based on available space
+  squareSize = constrain((width - controlPanelWidth) / 8, 40, 80);
+
+  // Add a gap between Stack and Heap areas - increased for better spacing
+  gap = squareSize * 1.5;
+
+  cols = floor((width - controlPanelWidth) / squareSize);
+
+  // Calculate total available rows and divide between stack and heap
+  let totalRows = floor(height / squareSize);
+  stackRows = floor(totalRows * 0.5); // Decreased from 0.6 to 0.5
+  heapRows = 1; // Just one row for heap - CHANGE HERE
+}
+
+function createDraggableButtons() {
+  // Remove any existing buttons first
+  draggableButtons.forEach((item) => {
+    if (item.btn) item.btn.remove();
+  });
+
+  draggableButtons = [];
+
+  let yOffset = height * 0.58; // Base vertical position
+
+  buttonLabels.forEach((label, index) => {
+    let btn = createButton(label);
+    let initialX = controlPanelWidth * 0.1;
+    let initialY;
+
+    // Special positioning for "y = x" and "*y = 13" buttons
+    if (label === "y = x") {
+      // Position these buttons much lower and closer together
+      initialY = height * 0.7; // Use absolute positioning with height
+    } 
+    else if (label === "*y = 13") {
+      // Position just below "y = x" with minimal gap
+      initialY = height * 0.7 + buttonHeight + 10; // 10px gap
+    }
+    else {
+      // Regular positioning for other buttons
+      initialY = yOffset + index * buttonSpacing;
+    }
+
+    btn.position(initialX, initialY);
+    btn.size(controlPanelWidth * 0.8, buttonHeight * 1.3);
+    btn.style("font-size", buttonFontSize * 1.1 + "px");
+
+    // Use an anonymous function to capture the index
+    btn.mousePressed(function () {
+      startDragging(index);
+      // Return false to prevent default button behavior
+      return false;
+    });
+
+    draggableButtons.push({
+      btn,
+      initialX,
+      initialY,
+      label,
+      dragging: false,
+    });
+  });
+  
+  // Debug - log positions of special buttons
+  let yxButton = draggableButtons.find(b => b.label === "y = x");
+  let y13Button = draggableButtons.find(b => b.label === "*y = 13");
+  if (yxButton && y13Button) {
+    console.log("y = x position:", yxButton.initialY);
+    console.log("*y = 13 position:", y13Button.initialY);
+  }
+}
+
+function keyPressed() {
+  // Debug key: press 'd' to see current state
+  if (key === "d") {
+    console.log("Current stage:", currentStage);
+    console.log("intXPosition:", intXPosition);
+    console.log("intYPosition:", intYPosition);
+    console.log("mallocPosition:", mallocPosition);
+    console.log("storedValue:", storedValue);
+    console.log("dragging:", dragging);
+    if (key === "r") {
+      arrowAnimation = null;
+      valueAnimation = null;
+      errorDisplayActive = false;
+      console.log("Reset animations");
+    }
+  }
+
+  // Skip to stage 3 key: press '3' for testing
+  if (key === "3" && !showWelcomeScreen) {
+    // Set up the environment for stage 3
+    if (intXPosition === null) {
+      intXPosition = {
+        x: 2,
+        y: baseFontSize * 2 + 2 * squareSize,
+      };
+    }
+
+    if (mallocPosition === null) {
+      let heapStartY = stackRows * squareSize + baseFontSize * 2 + gap;
+      mallocPosition = {
+        x: 3,
+        y: heapStartY + squareSize,
+      };
+    }
+
+    currentStage = 3;
+    showOnlyStageButtons();
+  }
+}
+// Modify the draw() function to add drawing of the permanent arrow
+function draw() {
+  clear();
+  background(255);
+  strokeWeight(0.5);
+
+  if (showWelcomeScreen) {
+    drawWelcomeScreen();
+    return;
+  }
+
+  // Draw the control panel area (left side)
+  fill(220);
+  stroke(0);
+  rect(0, 0, controlPanelWidth, height);
+
+  // Draw source code section
+  drawSourceCode();
+
+  // Draw instruction box
+  drawInstructionBox();
+
+  // Draw the grid
+  drawGrid();
+
+  // Draw permanent arrows if they exist
+  if (permanentArrow !== null) {
+    drawPermanentArrow();
+  }
+
+  if (permanentYArrow !== null) {
+    drawPermanentYArrow();
+  }
+
+  // Draw arrow animations if active
+  if (arrowAnimation) {
+    drawArrowAnimation();
+  }
+
+  if (yArrowAnimation) {
+    drawYArrowAnimation();
+  }
+
+  // Draw value animation if active
+  if (valueAnimation) {
+    drawValueAnimation();
+  }
+
+  // Debug text - show current stage
+  fill(255, 0, 0);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text("Stage: " + currentStage, 100, height - 20);
+
+  // Handle dragging of button
+  if (dragging !== null && !errorDisplayActive) {
+    fill(0, 255, 0, 50); // Visual feedback that dragging is active
+    noStroke();
+    rect(0, 0, 10, 10);
+
+    let draggedButton = draggableButtons[dragging];
+    let inputX = touches.length > 0 ? touches[0].x : mouseX;
+    let inputY = touches.length > 0 ? touches[0].y : mouseY;
+    draggedButton.btn.position(
+      inputX - buttonWidth / 4,
+      inputY - buttonHeight / 2
+    );
+  }
+
+  // Draw error overlay if active
+  if (errorDisplayActive) {
+    drawErrorOverlay();
+  }
+}
+// Modify the drawGrid() function to show the stored value in the heap
+function drawGrid() {
+  let counter = 0;
+
+  // Draw Stack area
+  fill(0);
+  textSize(baseFontSize * 1.3);
+  textAlign(CENTER, TOP);
+  text(
+    "Stack: Scope-Based Memory",
+    controlPanelWidth + (cols * squareSize) / 2,
+    baseFontSize * 0.5
+  );
+
+  // Draw the stack grid cells
+  for (let y = 0; y < stackRows; y++) {
+    for (let x = 0; x < cols; x++) {
+      let xpos = controlPanelWidth + x * squareSize;
+      let ypos = y * squareSize + baseFontSize * 2; // Add space for the title
+
+      // Check if this is part of the int*x allocation
+      let isIntXArea =
+        intXPosition !== null &&
+        y * squareSize + baseFontSize * 2 === intXPosition.y &&
+        x >= intXPosition.x &&
+        x < intXPosition.x + 8;
+
+      // Check if this is part of the int*y allocation
+      let isIntYArea =
+        intYPosition !== null &&
+        y * squareSize + baseFontSize * 2 === intYPosition.y &&
+        x >= intYPosition.x &&
+        x < intYPosition.x + 8;
+
+      if (isIntXArea) {
+        fill(221, 160, 221); // Light purple color for int*x
+      } else if (isIntYArea) {
+        fill(173, 216, 230); // Light blue color for int*y
+      } else {
+        fill(240); // Default gray color for all squares
+      }
+
+      stroke(0);
+      strokeWeight(0.5);
+      rect(xpos, ypos, squareSize, squareSize);
+
+      // Draw hex label at center of square ONLY if not part of allocated areas
+      if (!isIntXArea && !isIntYArea) {
+        fill(0);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        let hexLabel = "0x" + counter.toString(16).toUpperCase();
+        textSize(min(12, squareSize * 0.25));
+        text(hexLabel, xpos + squareSize / 2, ypos + squareSize / 2);
+      }
+
+      // If this is the center of int*x, add label (4th square in the 8-square block)
+      if (isIntXArea && x === intXPosition.x + 3) {
+        fill(0);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        textSize(min(16, squareSize * 0.4));
+        text("x", xpos + squareSize / 2, ypos + squareSize / 2);
+      }
+
+      // If this is the center of int*y, add label (4th square in the 8-square block)
+      if (isIntYArea && x === intYPosition.x + 3) {
+        fill(0);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        textSize(min(16, squareSize * 0.4));
+        text("y", xpos + squareSize / 2, ypos + squareSize / 2);
+      }
+
+      counter++;
+    }
+  }
+
+  // Draw Heap area title
+  let heapStartY = stackRows * squareSize + baseFontSize * 2 + gap;
+  fill(0);
+  textSize(baseFontSize * 1.3);
+  textAlign(CENTER, TOP);
+  text(
+    "Heap: Dynamically Allocated Memory",
+    controlPanelWidth + (cols * squareSize) / 2,
+    heapStartY - baseFontSize * 2 // Adjusted to move title up
+  );
+
+  // Draw the heap grid cells - now just one row
+  for (let y = 0; y < heapRows; y++) {
+    for (let x = 0; x < cols; x++) {
+      let xpos = controlPanelWidth + x * squareSize;
+      let ypos = heapStartY + y * squareSize;
+
+      // Check if this is part of the malloc allocation
+      let isMallocArea =
+        mallocPosition !== null &&
+        Math.abs(ypos - mallocPosition.y) < 1 && // Use approximate equality for floating point
+        x >= mallocPosition.x &&
+        x < mallocPosition.x + 4;
+
+      if (isMallocArea) {
+        fill(255, 200, 200); // Light red color for malloc
+      } else {
+        fill(240); // Default gray color for all squares
+      }
+
+      stroke(0);
+      strokeWeight(0.5);
+      rect(xpos, ypos, squareSize, squareSize);
+
+      // Draw hex label at center of square ONLY if not in malloc area
+      if (!isMallocArea) {
+        fill(0);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        let hexLabel = "0x" + counter.toString(16).toUpperCase();
+        textSize(min(12, squareSize * 0.25));
+        text(hexLabel, xpos + squareSize / 2, ypos + squareSize / 2);
+      }
+
+      counter++;
+    }
+  }
+
+  // Draw the z label or stored value over the malloc area as a separate layer
+  if (mallocPosition !== null) {
+    fill(0);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(min(18, squareSize * 0.5));
+    let textX =
+      controlPanelWidth + mallocPosition.x * squareSize + 2 * squareSize; // Center of the 4 squares
+    let textY = mallocPosition.y + squareSize / 2;
+
+    // Show the stored value if it exists, otherwise show "z"
+    if (storedValue !== null && !valueAnimation) {
+      text(storedValue, textX, textY);
+    } else if (!valueAnimation || valueAnimation.progress < 0.95) {
+      text(" ", textX, textY);
+    }
+  }
+}
+
+function drawWelcomeScreen() {
+  // Pink background welcome screen
+  background(256, 92, 156);
+
+  // Welcome title at the top
+  fill(0);
+  textSize(min(36, width / 20));
+  textAlign(CENTER);
+  text("Welcome to Binky Live!", width / 2, height / 6);
+
+  // Description text below title
+  textSize(min(18, width / 40));
+  let descriptionText =
+    "Your goal is to allocate and dereference pointers x and y as seen in the Binky Pointer Fun video by Nick Parlante. \nClick here to watch it!";
+
+  // Create a clickable link to the video
+  fill(0, 0, 255); // Blue text for hyperlink
+  text(descriptionText, width / 6, height / 4, (width * 2) / 3);
+
+  // Calculate the clickable area for the link
+  let linkX = width / 6;
+  let linkY = height / 4;
+  let linkWidth = (width * 2) / 3;
+  let linkHeight = 60; // Approximate height of the text
+
+  // Check for mouse hover and click on the link area
+  if (
+    mouseX > linkX &&
+    mouseX < linkX + linkWidth &&
+    mouseY > linkY &&
+    mouseY < linkY + linkHeight
+  ) {
+    cursor(HAND);
+    if (mouseIsPressed) {
+      window.open("https://youtu.be/5VnDaHBi8dM?si=5BGgqqi_EKHVfnuL", "_blank");
+    }
+  } else {
+    cursor(ARROW);
+  }
+
+  // Draw Binky image centered below text
+  let binkyDrawWidth = min(characterImage.width, width * 0.3);
+  let binkyScaleFactor = binkyDrawWidth / characterImage.width;
+  let binkyDrawHeight = characterImage.height * binkyScaleFactor;
+
+  // Center horizontally and position below text
+  let binkyX = width / 2 - binkyDrawWidth / 2;
+  let binkyY = height / 2; // Position in middle of screen, below text
+
+  image(characterImage, binkyX, binkyY, binkyDrawWidth, binkyDrawHeight);
+
+  // "Click Binky" text positioned just above Binky
+  fill(0);
+  textSize(min(24, width / 30));
+  text("Click Binky to continue", width / 2, binkyY - 30);
+}
+
+function drawPermanentArrow() {
+  if (!permanentArrow || !intXPosition || !mallocPosition) return;
+
+  // Calculate the same start and end points as in the animation
+  let startX = controlPanelWidth + (intXPosition.x + 4) * squareSize;
+  let startY = intXPosition.y + squareSize;
+  let endX = controlPanelWidth + mallocPosition.x * squareSize + 2 * squareSize;
+  let endY = mallocPosition.y;
+
+  // Draw the complete arrow
+  stroke(0);
+  strokeWeight(3);
+  line(startX, startY, endX, endY);
+
+  // Draw arrowhead
+  let arrowSize = squareSize * 0.2;
+  fill(0);
+  push();
+  translate(endX, endY);
+  let angle = atan2(endY - startY, endX - startX);
+  rotate(angle);
+  triangle(0, 0, -arrowSize, -arrowSize / 2, -arrowSize, arrowSize / 2);
+  pop();
+}
+
+function drawSourceCode() {
+  fill(0);
+  textSize(min(16, width / 50));
+  textAlign(LEFT, TOP);
+  text("Source Code", 20, height / 30);
+
+  // Draw border around the code
+  noFill();
+  stroke(0);
+  let codeY = height / 12;
+  let codeLines = [
+    "//Binky video: Does this Work?",
+    "int main(void)",
+    "{int* x;",
+    "int* y;",
+    "x = malloc(sizeof(int));",
+    "*x = 42;",
+    "y = x;",
+    "*y = 13; }",
+  ];
+  let lineHeight = min(22, height / 30);
+  let codeHeight = codeLines.length * lineHeight;
+  rect(10, codeY - 10, controlPanelWidth - 20, codeHeight + 20, 5);
+
+  // Draw the code with highlighting for the current stage
+  textSize(min(14, width / 70));
+  textAlign(LEFT, TOP);
+  for (let i = 0; i < codeLines.length; i++) {
+    // Check if this is the line to highlight for the current stage
+    if (
+      currentStage < codeHighlightLines.length &&
+      i === codeHighlightLines[currentStage]
+    ) {
+      // First draw the highlight background
+      noStroke();
+      fill(128, 0, 128, 60); // Light purple background
+      rect(
+        15,
+        codeY + i * lineHeight - 2,
+        controlPanelWidth - 30,
+        lineHeight + 4
+      );
+
+      // Then draw the text in purple and bold
+      fill(128, 0, 128); // Purple text
+      textStyle(BOLD);
+    } else {
+      // Normal text styling
+      fill(0);
+      textStyle(NORMAL);
+    }
+
+    // Draw the text
+    text(codeLines[i], 20, codeY + i * lineHeight);
+  }
+
+  // Reset text style
+  textStyle(NORMAL);
+}
+
+function drawInstructionBox() {
+  let codeY = height / 12;
+  let codeLines = [
+    "//Binky video: Does this Work?",
+    "int main(void)",
+    "{int* x;",
+    "int* y;",
+    "x = malloc(sizeof(int));",
+    "*x = 42;",
+    "y = x;",
+    "*y = 13; }",
+  ];
+  let lineHeight = min(22, height / 30);
+  let codeHeight = codeLines.length * lineHeight;
+
+  // Calculate the vertical position to align with code
+  let codeBottom = codeY + codeHeight; // Bottom of code block
+
+  // Draw the instructional text section title
+  fill(0);
+  textSize(min(16, width / 50));
+  textAlign(LEFT, TOP);
+  text("Instructions", 20, codeBottom + 30);
+
+  // Draw border around instructions
+  noFill();
+  stroke(0);
+  let instructionAreaHeight = height - codeBottom - 120; // Leave space for buttons
+  rect(10, codeBottom + 50, controlPanelWidth - 20, instructionAreaHeight, 5);
+
+  // Draw the current instructional text
+  fill(0, 50, 200);
+  textSize(min(14, width / 70));
+  textAlign(LEFT, TOP);
+  let textPadding = 20;
+  let textAreaWidth = controlPanelWidth - textPadding * 2;
+
+  // Position the text inside the instruction box
+  text(instructionTexts[currentStage], 20, codeBottom + 70, textAreaWidth);
+}
+
+// Modify the drawArrowAnimation function
+function drawArrowAnimation() {
+  if (!arrowAnimation) return;
+
+  // Calculate start and end points
+  let startX, startY, endX, endY;
+
+  // Start from bottom center of int*x area
+  startX = controlPanelWidth + (intXPosition.x + 4) * squareSize; // Center of the 8 squares
+  startY = intXPosition.y + squareSize; // Bottom edge
+
+  // End at top center of malloc area
+  endX = controlPanelWidth + mallocPosition.x * squareSize + 2 * squareSize; // Center of the 4 squares
+  endY = mallocPosition.y; // Top edge
+
+  // Calculate current position based on animation progress
+  let currentX = lerp(startX, endX, arrowAnimation.progress);
+  let currentY = lerp(startY, endY, arrowAnimation.progress);
+
+  // Draw the line from start to current position
+  stroke(0);
+  strokeWeight(3);
+  line(startX, startY, currentX, currentY);
+
+  // Draw arrowhead if animation is far enough along
+  if (arrowAnimation.progress > 0.8) {
+    let arrowSize = squareSize * 0.2;
+    fill(0);
+    push();
+    translate(endX, endY);
+    let angle = atan2(endY - startY, endX - startX);
+    rotate(angle);
+    triangle(0, 0, -arrowSize, -arrowSize / 2, -arrowSize, arrowSize / 2);
+    pop();
+  }
+
+  // Update animation progress
+  arrowAnimation.progress += 0.01;
+
+  // Animation complete
+  if (arrowAnimation.progress >= 1) {
+    arrowAnimation.progress = 1;
+
+    // Continue to next stage after brief delay
+    if (!arrowAnimation.completed) {
+      arrowAnimation.completed = true;
+
+      // Set the permanent arrow that will persist
+      permanentArrow = true;
+
+      setTimeout(() => {
+        currentStage = 3;
+        arrowAnimation = null; // Clear the animation object
+        showOnlyStageButtons();
+      }, 500);
+    }
+  }
+}
+
+function drawErrorOverlay() {
+  // Semi-transparent red overlay on the memory board
+  fill(255, 0, 0, 100);
+  noStroke();
+  rect(controlPanelWidth, 0, width - controlPanelWidth, height);
+
+  // Error message box
+  fill(255);
+  noStroke();
+  rectMode(CENTER);
+  let boxWidth = (width - controlPanelWidth) * 0.8;
+  let boxHeight = height * 0.15;
+  rect(
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2,
+    boxWidth,
+    boxHeight,
+    10
+  );
+
+  // Error message
+  fill(255, 0, 0);
+  textSize(baseFontSize * 1.2);
+  textAlign(CENTER, CENTER);
+  text(
+    errorMessage,
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2,
+    boxWidth - 20,
+    boxHeight - 20
+  );
+
+  // Add hint about clicking to continue
+  textSize(baseFontSize * 0.8);
+  text(
+    "Tap anywhere to continue",
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2 + boxHeight * 0.35
+  );
+  rectMode(CORNER);
+}
+
+// Update startDragging function to allow both buttons in stage 4
+function startDragging(index) {
+  // Add console logs for debugging
+  console.log("Trying to drag button with index:", index);
+  console.log("Current stage:", currentStage);
+  console.log("Button label:", draggableButtons[index].label);
+
+  if (
+    dragging === null &&
+    !errorDisplayActive &&
+    !arrowAnimation &&
+    !valueAnimation &&
+    !yArrowAnimation // Also check yArrowAnimation isn't running
+  ) {
+    // Check if this is the right button for the current stage
+    let buttonLabel = draggableButtons[index].label;
+    let canDragButton = false;
+
+    // Standard stage-based buttons
+    if (
+      (currentStage === 0 && buttonLabel === "int* x") ||
+      (currentStage === 1 && buttonLabel === "int* y") ||
+      (currentStage === 2 && buttonLabel === "x = malloc(sizeof(int))") ||
+      (currentStage === 3 && buttonLabel === "*x = 42")
+    ) {
+      canDragButton = true;
+    }
+
+    // Special case for stage 4 where both buttons are valid
+    if (
+      currentStage === 4 &&
+      (buttonLabel === "y = x" || buttonLabel === "*y = 13")
+    ) {
+      canDragButton = true;
+    }
+
+    if (canDragButton) {
+      console.log("Starting drag for button:", buttonLabel);
+      dragging = index;
+      draggableButtons[index].dragging = true;
+
+      // Prevent default button behavior
+      return false;
+    }
+  }
+}
+
+function handleDrop() {
+  if (dragging !== null) {
+    let draggedButton = draggableButtons[dragging];
+
+    // Calculate the grid position where the button was dropped
+    let gridX = floor((mouseX - controlPanelWidth) / squareSize);
+    let gridY = floor(mouseY / squareSize);
+
+    // Calculate heap start Y position
+    let heapStartY = stackRows * squareSize + baseFontSize * 2 + gap;
+
+    // Check if drop is within stack area (for pointers)
+    let isInStackArea =
+      mouseY >= baseFontSize * 2 &&
+      mouseY < stackRows * squareSize + baseFontSize * 2;
+
+    // Check if drop is within heap area (for malloc)
+    let isInHeapArea =
+      mouseY >= heapStartY && mouseY < heapStartY + heapRows * squareSize;
+
+    // Adjust gridY to account for stack title or heap position
+    let adjustedGridY;
+    if (isInStackArea) {
+      adjustedGridY = gridY - floor((baseFontSize * 2) / squareSize);
+    } else if (isInHeapArea) {
+      adjustedGridY = gridY - floor(heapStartY / squareSize);
+    }
+
+    if (draggedButton.label === "int* x") {
+      // Handle int* x button
+      if (isInStackArea && isValidPointerPosition(gridX, adjustedGridY)) {
+        // Valid drop for int* x
+        intXPosition = {
+          x: gridX,
+          y: adjustedGridY * squareSize + baseFontSize * 2,
+        };
+
+        // Hide the button since it's now placed
+        draggedButton.btn.hide();
+
+        // Move to next stage
+        currentStage = 1;
+
+        // Show only the relevant button for the next stage
+        showOnlyStageButtons();
+      } else {
+        // Invalid drop - return button to original position
+        resetButtonPosition(draggedButton);
+        showErrorMessage(
+          "Pointers must be declared in available space on the stack!"
+        );
+      }
+    } else if (draggedButton.label === "int* y") {
+      // Handle int* y button
+      if (isInStackArea && isValidPointerPosition(gridX, adjustedGridY)) {
+        // Valid drop for int* y
+        intYPosition = {
+          x: gridX,
+          y: adjustedGridY * squareSize + baseFontSize * 2,
+        };
+
+        // Hide the button since it's now placed
+        draggedButton.btn.hide();
+
+        // Move to next stage
+        currentStage = 2;
+
+        // Show only the relevant button for the next stage
+        showOnlyStageButtons();
+      } else {
+        // Invalid drop - return button to original position
+        resetButtonPosition(draggedButton);
+        showErrorMessage(
+          "Pointers must be declared in available space on the stack!"
+        );
+      }
+    } else if (draggedButton.label === "x = malloc(sizeof(int))") {
+      // Calculate heap start Y position
+      let heapStartY = stackRows * squareSize + baseFontSize * 2 + gap;
+      let heapEndY = heapStartY + heapRows * squareSize;
+
+      // Debug info
+      console.log(
+        "Mouse:",
+        mouseX,
+        mouseY,
+        "Heap Y range:",
+        heapStartY,
+        heapEndY
+      );
+
+      // Check if drop is within heap area (for malloc)
+      let isInHeapArea =
+        mouseY >= heapStartY &&
+        mouseY < heapEndY &&
+        mouseX >= controlPanelWidth &&
+        mouseX < width;
+
+      // Calculate grid position - specific to heap area
+      let gridX = floor((mouseX - controlPanelWidth) / squareSize);
+
+      // Check if we have enough horizontal space
+      let hasEnoughSpace = gridX >= 0 && gridX + 3 < cols;
+
+      console.log("In heap:", isInHeapArea, "Has space:", hasEnoughSpace);
+
+      if (isInHeapArea && hasEnoughSpace) {
+        // Valid drop for malloc
+        mallocPosition = {
+          x: gridX,
+          y: heapStartY, // Always use exact heapStartY
+        };
+
+        // Hide the button since it's now placed
+        draggedButton.btn.hide();
+
+        // Start arrow animation
+        arrowAnimation = {
+          progress: 0,
+          completed: false,
+        };
+      } else {
+        // Invalid drop - return button to original position
+        resetButtonPosition(draggedButton);
+        if (!isInHeapArea) {
+          showErrorMessage(
+            "Dynamic memory (malloc) must be allocated on the heap!"
+          );
+        } else {
+          showErrorMessage("An int requires 4 contiguous bytes of memory!");
+        }
+      }
+    } else if (draggedButton.label === "*x = 42") {
+      // Check if the button was dropped on the purple area (int* x)
+      let isOnXPointer =
+        intXPosition !== null &&
+        mouseY >= intXPosition.y &&
+        mouseY <= intXPosition.y + squareSize &&
+        mouseX >= controlPanelWidth + intXPosition.x * squareSize &&
+        mouseX <= controlPanelWidth + (intXPosition.x + 8) * squareSize;
+
+      if (isOnXPointer) {
+        // Valid drop - start value animation
+        draggedButton.btn.hide();
+
+        // Create value animation from x pointer to malloc area
+        valueAnimation = {
+          value: 42,
+          progress: 0,
+          completed: false,
+          startX: controlPanelWidth + (intXPosition.x + 4) * squareSize, // Center of x pointer
+          startY: intXPosition.y + squareSize / 2,
+          endX: controlPanelWidth + (mallocPosition.x + 2) * squareSize, // Center of malloc area
+          endY: mallocPosition.y + squareSize / 2,
+        };
+
+        // The stage will advance after animation completes
+      } else {
+        // Invalid drop - return button to original position
+        resetButtonPosition(draggedButton);
+        showErrorMessage(
+          "To set *x = 42, you need to drop this button on the purple area (where x is declared)!"
+        );
+      }
+    } else if (draggedButton.label === "y = x") {
+      // Check if the button was dropped on the blue area (int* y)
+      let isOnYPointer =
+        intYPosition !== null &&
+        mouseY >= intYPosition.y &&
+        mouseY <= intYPosition.y + squareSize &&
+        mouseX >= controlPanelWidth + intYPosition.x * squareSize &&
+        mouseX <= controlPanelWidth + (intYPosition.x + 8) * squareSize;
+
+      if (isOnYPointer) {
+        // Valid drop - hide the button permanently
+        draggedButton.btn.hide();
+
+        // Debug
+        console.log("Creating y arrow animation");
+
+        // Create y arrow animation from y pointer to malloc area
+        yArrowAnimation = {
+          progress: 0,
+          completed: false,
+        };
+      } else {
+        // Invalid drop - return button to original position
+        resetButtonPosition(draggedButton);
+        showErrorMessage(
+          "To set y = x, you need to drop this button on the blue area (where y is declared)!"
+        );
+      }
+    } else if (draggedButton.label === "*y = 13") {
+      // Check if the button was dropped on the blue area (int* y)
+      let isOnYPointer =
+        intYPosition !== null &&
+        mouseY >= intYPosition.y &&
+        mouseY <= intYPosition.y + squareSize &&
+        mouseX >= controlPanelWidth + intYPosition.x * squareSize &&
+        mouseX <= controlPanelWidth + (intYPosition.x + 8) * squareSize;
+
+      if (isOnYPointer && yPointsToZ) {
+        // Valid drop - start value animation
+        draggedButton.btn.hide();
+
+        // Create value animation from y pointer to malloc area
+        valueAnimation = {
+          value: 13,
+          progress: 0,
+          completed: false,
+          startX: controlPanelWidth + (intYPosition.x + 4) * squareSize, // Center of y pointer
+          startY: intYPosition.y + squareSize / 2,
+          endX: controlPanelWidth + (mallocPosition.x + 2) * squareSize, // Center of malloc area
+          endY: mallocPosition.y + squareSize / 2,
+        };
+
+        // The value animation will complete the simulation
+      } else if (!yPointsToZ) {
+        // Invalid drop - y doesn't point to valid memory
+        resetButtonPosition(draggedButton);
+        showErrorMessage(
+          "You need to set y = x first so that y points to valid allocated memory!"
+        );
+      } else {
+        // Invalid drop - not on y pointer
+        resetButtonPosition(draggedButton);
+        showErrorMessage(
+          "To set *y = 13, you need to drop this button on the blue area (where y is declared)!"
+        );
+      }
+    }
+
+    draggedButton.dragging = false;
+    dragging = null;
+  }
+}
+function drawValueAnimation() {
+  if (!valueAnimation) return;
+
+  // Calculate current position based on animation progress
+  let currentX = lerp(
+    valueAnimation.startX,
+    valueAnimation.endX,
+    valueAnimation.progress
+  );
+  let currentY = lerp(
+    valueAnimation.startY,
+    valueAnimation.endY,
+    valueAnimation.progress
+  );
+
+  // Draw circle with value
+  fill(255, 255, 0); // Yellow circle
+  stroke(0);
+  strokeWeight(1);
+  ellipse(currentX, currentY, squareSize * 0.8, squareSize * 0.8);
+
+  // Draw value inside circle
+  fill(0);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(min(18, squareSize * 0.5));
+  text(valueAnimation.value, currentX, currentY);
+
+  // Update animation progress
+  valueAnimation.progress += 0.01;
+
+  // Animation complete
+  if (valueAnimation.progress >= 1) {
+    valueAnimation.progress = 1;
+
+    // Continue to next stage after brief delay
+    if (!valueAnimation.completed) {
+      valueAnimation.completed = true;
+
+      // Store the value and update display
+      storedValue = valueAnimation.value;
+
+      // Clean up animation after a short delay
+      setTimeout(() => {
+        valueAnimation = null;
+
+        // Check which value was animated to determine what to do next
+        if (storedValue === 42) {
+          // After *x = 42 animation, advance to stage 4
+          currentStage = 4;
+          showOnlyStageButtons();
+        } else if (storedValue === 13) {
+          // After *y = 13 animation, show completion message
+          showSuccessMessage(
+            "Congratulations! You've successfully completed all steps!"
+          );
+        }
+      }, 500);
+    }
+  }
+}
+
+function isValidPointerPosition(x, y) {
+  // Check if there are 8 contiguous available squares
+  if (x < 0 || x + 7 >= cols) {
+    return false; // Not enough space horizontally
+  }
+
+  // Get the adjusted y position with title offset
+  let actualY = y * squareSize + baseFontSize * 2;
+
+  // Check if any of these squares are already occupied
+  for (let i = 0; i < 8; i++) {
+    // Check against int*x position
+    if (
+      intXPosition !== null &&
+      actualY === intXPosition.y &&
+      x + i >= intXPosition.x &&
+      x + i < intXPosition.x + 8
+    ) {
+      return false; // Overlaps with int*x
+    }
+
+    // Check against int*y position
+    if (
+      intYPosition !== null &&
+      actualY === intYPosition.y &&
+      x + i >= intYPosition.x &&
+      x + i < intYPosition.x + 8
+    ) {
+      return false; // Overlaps with int*y
+    }
+  }
+
+  return true;
+}
+
+function drawYArrowAnimation() {
+  if (!yArrowAnimation) return;
+
+  // Calculate start and end points
+  let startX, startY, endX, endY;
+
+  // Start from bottom center of int*y area
+  startX = controlPanelWidth + (intYPosition.x + 4) * squareSize; // Center of the 8 squares
+  startY = intYPosition.y + squareSize; // Bottom edge
+
+  // End at top center of malloc area
+  endX = controlPanelWidth + mallocPosition.x * squareSize + 2 * squareSize; // Center of the 4 squares
+  endY = mallocPosition.y; // Top edge
+
+  // Calculate current position based on animation progress
+  let currentX = lerp(startX, endX, yArrowAnimation.progress);
+  let currentY = lerp(startY, endY, yArrowAnimation.progress);
+
+  // Draw the line from start to current position
+  stroke(0, 0, 255); // Blue color for y arrow
+  strokeWeight(3);
+  line(startX, startY, currentX, currentY);
+
+  // Draw arrowhead if animation is far enough along
+  if (yArrowAnimation.progress > 0.8) {
+    let arrowSize = squareSize * 0.2;
+    fill(0, 0, 255);
+    push();
+    translate(endX, endY);
+    let angle = atan2(endY - startY, endX - startX);
+    rotate(angle);
+    triangle(0, 0, -arrowSize, -arrowSize / 2, -arrowSize, arrowSize / 2);
+    pop();
+  }
+
+  // Update animation progress
+  yArrowAnimation.progress += 0.01;
+
+  // Animation complete
+  if (yArrowAnimation.progress >= 1) {
+    yArrowAnimation.progress = 1;
+
+    // Continue to next stage after brief delay
+    if (!yArrowAnimation.completed) {
+      yArrowAnimation.completed = true;
+
+      // Debug
+      console.log("Y arrow animation completed");
+
+      // Set the permanent y arrow and update the y points to z flag
+      permanentYArrow = true;
+      yPointsToZ = true;
+
+      setTimeout(() => {
+        yArrowAnimation = null; // Clear the animation object
+        // Don't advance the stage because we still need *y = 13
+
+        // Show both buttons again after animation completes
+        showOnlyStageButtons();
+      }, 500);
+    }
+  }
+}
+
+function drawPermanentYArrow() {
+  if (!permanentYArrow || !intYPosition || !mallocPosition) return;
+
+  // Calculate the same start and end points as in the animation
+  let startX = controlPanelWidth + (intYPosition.x + 4) * squareSize;
+  let startY = intYPosition.y + squareSize;
+  let endX = controlPanelWidth + mallocPosition.x * squareSize + 2 * squareSize;
+  let endY = mallocPosition.y;
+
+  // Draw the complete arrow in blue
+  stroke(0, 0, 255); // Blue for y arrow
+  strokeWeight(3);
+  line(startX, startY, endX, endY);
+
+  // Draw arrowhead
+  let arrowSize = squareSize * 0.2;
+  fill(0, 0, 255); // Blue fill
+  push();
+  translate(endX, endY);
+  let angle = atan2(endY - startY, endX - startX);
+  rotate(angle);
+  triangle(0, 0, -arrowSize, -arrowSize / 2, -arrowSize, arrowSize / 2);
+  pop();
+}
+
+function isValidMallocPosition(x, y) {
+  // Check if there are 4 contiguous available squares (for 4 bytes)
+  if (x < 0 || x + 3 >= cols) {
+    return false; // Not enough space horizontally
+  }
+
+  // Only allow malloc in the first (and only) row of heap
+  if (y !== 0) {
+    return false;
+  }
+
+  return true; // Valid position with enough space for 4 bytes
+}
+
+function resetButtonPosition(button) {
+  button.btn.position(button.initialX, button.initialY);
+}
+
+function showErrorMessage(message) {
+  errorMessage = message;
+  errorDisplayActive = true;
+
+  // Hide all buttons while error is displayed
+  draggableButtons.forEach((button) => {
+    if (button.btn) button.btn.hide();
+  });
+
+  // Stop any ongoing drag operation
+  if (dragging !== null) {
+    let draggedButton = draggableButtons[dragging];
+    draggedButton.dragging = false;
+    dragging = null;
+  }
+
+  setTimeout(() => {
+    errorDisplayActive = false;
+
+    // Show only the buttons appropriate for current stage
+    showOnlyStageButtons();
+  }, 2000);
+}
+
+function showSuccessMessage(message) {
+  // Semi-transparent green overlay on the memory board
+  fill(0, 255, 0, 100);
+  noStroke();
+  rect(controlPanelWidth, 0, width - controlPanelWidth, height);
+
+  // Success message box
+  fill(255);
+  noStroke();
+  rectMode(CENTER);
+  let boxWidth = (width - controlPanelWidth) * 0.8;
+  let boxHeight = height * 0.15;
+  rect(
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2,
+    boxWidth,
+    boxHeight,
+    10
+  );
+
+  // Success message
+  fill(0, 128, 0);
+  textSize(baseFontSize * 1.2);
+  textAlign(CENTER, CENTER);
+  text(
+    message,
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2,
+    boxWidth - 20,
+    boxHeight - 20
+  );
+
+  // Add hint about restarting
+  textSize(baseFontSize * 0.8);
+  text(
+    "Click the Restart button to try again",
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2 + boxHeight * 0.35
+  );
+  rectMode(CORNER);
+}
+
+function showOnlyStageButtons() {
+  // Hide all buttons first
+  draggableButtons.forEach((button) => {
+    button.btn.hide();
+  });
+
+  // Show only buttons relevant for the current stage
+  switch (currentStage) {
+    case 0:
+      // Show only int* x button
+      let intXButton = draggableButtons.find((b) => b.label === "int* x");
+      if (intXButton && intXPosition === null) {
+        intXButton.btn.show();
+      }
+      break;
+
+    case 1:
+      // Show only int* y button for next stage
+      let intYButton = draggableButtons.find((b) => b.label === "int* y");
+      if (intYButton && intYPosition === null) {
+        intYButton.btn.show();
+      }
+      break;
+
+    case 2:
+      // Show malloc button for next stage
+      let mallocButton = draggableButtons.find(
+        (b) => b.label === "x = malloc(sizeof(int))"
+      );
+      if (mallocButton && mallocPosition === null) {
+        mallocButton.btn.show();
+      }
+      break;
+
+    case 3:
+      // Show *x = 42 button for next stage
+      let xAssignButton = draggableButtons.find((b) => b.label === "*x = 42");
+      if (xAssignButton && storedValue === null) {
+        xAssignButton.btn.show();
+      }
+      break;
+
+    case 4:
+      // Show both y = x AND *y = 13 buttons simultaneously so students can choose
+      let yEqualsXButton = draggableButtons.find((b) => b.label === "y = x");
+      let yAssignButton = draggableButtons.find((b) => b.label === "*y = 13");
+
+      // Only show y = x if it hasn't been placed yet (no permanent y arrow)
+      if (yEqualsXButton && !permanentYArrow) {
+        yEqualsXButton.btn.show();
+      }
+
+      // Always show *y = 13 if it hasn't been successfully used yet
+      // This allows students to try it even if they haven't set y = x yet
+      if (yAssignButton && storedValue !== 13) {
+        yAssignButton.btn.show();
+      }
+      break;
+  }
+}
+
+function showSuccessMessage(message) {
+  // Semi-transparent green overlay on the memory board
+  fill(0, 255, 0, 100);
+  noStroke();
+  rect(controlPanelWidth, 0, width - controlPanelWidth, height);
+
+  // Success message box
+  fill(255);
+  noStroke();
+  rectMode(CENTER);
+  let boxWidth = (width - controlPanelWidth) * 0.8;
+  let boxHeight = height * 0.15;
+  rect(
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2,
+    boxWidth,
+    boxHeight,
+    10
+  );
+
+  // Success message
+  fill(0, 128, 0);
+  textSize(baseFontSize * 1.2);
+  textAlign(CENTER, CENTER);
+  text(
+    message,
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2,
+    boxWidth - 20,
+    boxHeight - 20
+  );
+
+  // Add hint about restarting
+  textSize(baseFontSize * 0.8);
+  text(
+    "Click the Restart button to try again",
+    controlPanelWidth + (width - controlPanelWidth) / 2,
+    height / 2 + boxHeight * 0.35
+  );
+  rectMode(CORNER);
+
+  // Update to highlight the final line of code (*y = 13)
+  currentStage = 5; // This will highlight line at codeHighlightLines[5] which is the *y = 13 line
+
+  // Update instruction text with a reflection message
+  instructionTexts[5] = // Make sure we have an entry at index 5 for the reflection message
+    "🎉Great work! In this exercise, you've learned about: \n\n" +
+    "1. Declaring pointers (int* x, int* y)\n" +
+    "2. Allocating memory on the heap (malloc)\n" +
+    "3. Dereferencing pointers (*x = 42)\n" +
+    "4. Making pointers point to the same memory (y = x)\n" +
+    "5. Understanding that dereferencing a pointer (*y = 13) affects the value at the memory location🎉\n\n";
+}
+
+function restartSimulation() {
+  // Reset to welcome screen
+  showWelcomeScreen = true;
+
+  // Hide restart button during welcome screen
+  restartButton.hide();
+
+  // Reset all state variables
+  currentStage = 0;
+  intXPosition = null;
+  intYPosition = null;
+  mallocPosition = null;
+  dragging = null;
+  arrowAnimation = null;
+  yArrowAnimation = null;
+  valueAnimation = null;
+  storedValue = null;
+  permanentArrow = null;
+  permanentYArrow = null;
+  yPointsToZ = false;
+
+  // Reset error state
+  errorDisplayActive = false;
+  errorMessage = "";
+  // Remove all existing buttons
+  draggableButtons.forEach((button) => {
+    if (button.btn) {
+      button.btn.remove();
+    }
+  });
+
+  // Recreate all buttons with default state
+  createDraggableButtons();
+
+  // Hide all buttons during welcome screen
+  draggableButtons.forEach((button) => {
+    if (button.btn) button.btn.hide();
+  });
+}
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+
+  // Recalculate all responsive dimensions
+  calculateResponsiveSizes();
+
+  // Update position of restart button
+  restartButton.position(controlPanelWidth * 0.05, height - buttonHeight * 1.5);
+  restartButton.size(controlPanelWidth * 0.4, buttonHeight * 1.2);
+  restartButton.style("font-size", buttonFontSize + "px");
+
+  // Update button positions
+  updateButtonsAfterResize();
+
+  // Update allocated memory positions if needed
+  if (intXPosition !== null) {
+    // Keep the same relative position
+    let oldY = intXPosition.y;
+    intXPosition.y = oldY;
+  }
+
+  if (intYPosition !== null) {
+    // Keep the same relative position
+    let oldY = intYPosition.y;
+    intYPosition.y = oldY;
+  }
+
+  // Update malloc position if needed
+  if (mallocPosition !== null) {
+    let heapStartY = stackRows * squareSize + baseFontSize * 2 + gap;
+    // Preserve the row position in the heap
+    let rowInHeap =
+      (mallocPosition.y - (stackRows * squareSize + baseFontSize * 2 + gap)) /
+      squareSize;
+    mallocPosition.y = heapStartY + rowInHeap * squareSize;
+  }
+}
+
+function updateButtonsAfterResize() {
+  let yOffset = height * 0.58; // Keep original offset
+
+  for (let i = 0; i < draggableButtons.length; i++) {
+    let button = draggableButtons[i];
+    // Update the initial position
+    button.initialX = controlPanelWidth * 0.1;
+
+    // Special positioning for "y = x" and "*y = 13" buttons
+    if (button.label === "y = x") {
+      button.initialY = height * 0.7; // Use absolute positioning
+    } 
+    else if (button.label === "*y = 13") {
+      button.initialY = height * 0.7 + buttonHeight + 10; // 10px gap
+    } 
+    else {
+      // Regular positioning for other buttons
+      button.initialY = yOffset + i * buttonSpacing;
+    }
+
+    // Only reset position for buttons not placed on grid
+    if (
+      !(button.label === "int* x" && intXPosition !== null) &&
+      !(button.label === "int* y" && intYPosition !== null) &&
+      !(button.label === "x = malloc(sizeof(int))" && mallocPosition !== null) &&
+      !(button.label === "*x = 42" && storedValue === 42) && 
+      !(button.label === "y = x" && permanentYArrow) &&
+      !(button.label === "*y = 13" && storedValue === 13)
+    ) {
+      button.btn.position(button.initialX, button.initialY);
+    }
+
+    button.btn.size(controlPanelWidth * 0.8, buttonHeight * 1.3);
+    button.btn.style("font-size", buttonFontSize * 1.1 + "px");
+  }
+  
+  // Debug - log positions after resize
+  let yxButton = draggableButtons.find(b => b.label === "y = x");
+  let y13Button = draggableButtons.find(b => b.label === "*y = 13");
+  if (yxButton && y13Button) {
+    console.log("After resize - y = x position:", yxButton.initialY);
+    console.log("After resize - *y = 13 position:", y13Button.initialY);
+  }
+}
+
+function mousePressed() {
+  // If on welcome screen, check if Binky was clicked
+  if (showWelcomeScreen) {
+    // Calculate Binky's dimensions on welcome screen
+    let binkyDrawWidth = min(characterImage.width, width * 0.3);
+    let binkyScaleFactor = binkyDrawWidth / characterImage.width;
+    let binkyDrawHeight = characterImage.height * binkyScaleFactor;
+
+    // Calculate Binky's position on welcome screen
+    let binkyX = width / 2 - binkyDrawWidth / 2;
+    let binkyY = height / 2;
+
+    // Check if click is on Binky
+    if (
+      mouseX >= binkyX &&
+      mouseX <= binkyX + binkyDrawWidth &&
+      mouseY >= binkyY &&
+      mouseY <= binkyY + binkyDrawHeight
+    ) {
+      showWelcomeScreen = false; // Hide welcome screen
+      restartButton.show(); // Show restart button
+
+      // Show only buttons for current stage
+      showOnlyStageButtons();
+    }
+    return;
+  }
+
+  // Dismiss error message on click
+  if (errorDisplayActive) {
+    errorDisplayActive = false;
+    showOnlyStageButtons();
+    return false;
+  }
+}
+
+function touchStarted() {
+  // Simply call mousePressed to handle touch events the same way
+  mousePressed();
+  return false; // Prevent default behavior
+}
+
+function touchEnded() {
+  handleDrop();
+  return false; // Prevent default behavior
+}
+
+function mouseReleased() {
+  handleDrop();
+}
